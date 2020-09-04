@@ -1,7 +1,6 @@
 #![allow(incomplete_features)]
 #![feature(specialization)]
 #![feature(marker_trait_attr)]
-#![feature(optin_builtin_traits)]
 
 use generic_std::plug::*;
 use std::marker::PhantomData;
@@ -34,19 +33,12 @@ impl<'b, A, B: 'b> PlugType<B> for Gc<'b, A> {
     type T = Gc<'b, B>;
 }
 
-impl<'o, 'a, T:'o> PlugLifetime<'a> for HTry<Gc<'o, T>>  {
-    type T = Gc<'a, Ty<'a, T>>;
-}
-
 pub struct HTry<T>(PhantomData<T>);
-// impl<'a, T> PlugLifetime<'a> for HTry<T> {
-//     default type T = T;
-// }
-// impl<'a, T: PlugLifetime<'a>> PlugLifetime<'a> for HTry<T> {
-//     type T = <T as PlugLifetime<'a>>::T;
-// }
-impl<'a, T: 'static> PlugLifetime<'a> for HTry<T> {
-    type T = T;
+impl<'a, T> PlugLifetime<'a> for HTry<T> {
+    default type T = T;
+}
+impl<'a, T: PlugLifetime<'a>> PlugLifetime<'a> for HTry<T> {
+    type T = <T as PlugLifetime<'a>>::T;
 }
 
 fn transmute_lifetime<'b, A>(a: A) -> <HTry<A> as PlugLifetime<'b>>::T {
@@ -59,10 +51,14 @@ fn unify_test() {
     foo::<usize, usize>();
     foo::<Gc<usize>, Gc<usize>>();
 
-    fn lifes<'a, 'b>() {
-        let a: Gc<'a, usize> = Gc(&1);
-        let b: Gc<'b, usize> = transmute_lifetime(a);
-        // foo::<Ty<'b, Gc<'a, usize>>, Ty<'b, Gc<'b, usize>>>();
+    fn lifes<'a, 'b, T: for<'l> PlugLifetime<'l>>()
+    where
+        <T as PlugLifetime<'a>>::T: PlugLifetime<'b>,
+        <T as PlugLifetime<'b>>::T: Id<<<T as PlugLifetime<'a>>::T as PlugLifetime<'b>>::T>,
+    {
+        // let a: Gc<'a, usize> = Gc(&1);
+        // let b: Gc<'b, usize> = transmute_lifetime(a);
+        foo::<<<T as PlugLifetime<'a>>::T as PlugLifetime<'b>>::T, <T as PlugLifetime<'b>>::T>();
         // foo::<Gc<'a, usize>, Gc<'a, Ty<'a, usize>>>();
     }
     // foo::<Gc<usize>, Gc<Ty<Ty<String>>>>();
@@ -82,7 +78,7 @@ unsafe impl<'a, A, B> TyEq<A> for B where
 
 pub trait Trace {}
 
-type Ty<'r, T> where Ty<'r, T>: 'r = <HTry<T> as PlugLifetime<'r>>::T;
+type Ty<'r, T> = <HTry<T> as PlugLifetime<'r>>::T;
 type Static<T> = <HTry<T> as PlugLifetime<'static>>::T;
 
 pub struct Arena<A>(Vec<A>);
