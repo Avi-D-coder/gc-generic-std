@@ -1,12 +1,23 @@
 #![allow(incomplete_features)]
 #![feature(specialization)]
 #![feature(marker_trait_attr)]
+#![feature(negative_impls)]
+#![feature(optin_builtin_traits)]
 
+use auto_traits::NoGc;
 use generic_std::plug::*;
 use std::marker::PhantomData;
 
 fn main() {
     println!("Hello, world!");
+}
+
+pub trait UnPlugType {
+    type T;
+}
+
+pub trait UnPlugLifetime {
+    type T;
 }
 
 /// Realy `Gc<'r, T>(&'r T<'r>);`
@@ -17,11 +28,44 @@ pub struct H1Gc<'a>(PhantomData<&'a ()>);
 impl<'a> PlugLifetime<'a> for H2Gc {
     type T = H1Gc<'a>;
 }
-impl<'a, T: 'a + PlugLifetime<'a>> PlugType<T> for H1Gc<'a> {
-    type T = Gc<'a, <T as PlugLifetime<'a>>::T>;
+impl<'a, T: 'a> PlugType<T> for H1Gc<'a> {
+    type T = Gc<'a, T>;
 }
-impl<'a, T: 'static> PlugType<T> for H1Gc<'a> {
-    default type T = Gc<'a, T>;
+impl<'a> UnPlugLifetime for H1Gc<'a> {
+    type T = H2Gc;
+}
+impl<'a> UnPlugType for H1Gc<'a> {
+    type T = H1Gc<'a>;
+}
+impl<'a, T> UnPlugType for Gc<'a, T> {
+    type T = H1Gc<'a>;
+}
+
+fn transmute_lifetime<'a, 'b, T: UnPlugType>(
+    from: T,
+) -> <<<<T as UnPlugType>::T as UnPlugLifetime>::T as PlugLifetime<'b>>::T as PlugType<T>>::T
+where
+    <T as UnPlugType>::T: UnPlugLifetime,
+    <<T as UnPlugType>::T as UnPlugLifetime>::T: generic_std::plug::PlugLifetime<'b>,
+    <<<T as UnPlugType>::T as UnPlugLifetime>::T as generic_std::plug::PlugLifetime<'b>>::T:
+        generic_std::plug::PlugType<T>,
+{
+    todo!()
+}
+
+#[test]
+fn unify_test() {
+    fn foo<A, B: Id<A>>() {}
+    foo::<usize, usize>();
+    foo::<Gc<usize>, Gc<usize>>();
+
+    fn lifes<'a, 'b, T: for<'l> PlugLifetime<'l>>() {
+        // let a: Gc<'a, usize> = Gc(&1);
+        // let b: Gc<'b, usize> = transmute_lifetime(a);
+        // foo::<<<T as PlugLifetime<'a>>::T as PlugLifetime<'b>>::T, <T as PlugLifetime<'b>>::T>();
+        // foo::<Gc<'a, usize>, Gc<'a, Ty<'a, usize>>>();
+    }
+    // foo::<Gc<usize>, Gc<Ty<Ty<String>>>>();
 }
 
 pub struct List<'r, T>(Option<Gc<'r, Elem<'r, T>>>);
@@ -38,11 +82,6 @@ impl<'a> PlugLifetime<'a> for H2List {
 impl<'a, T: 'a + PlugLifetime<'a>> PlugType<T> for H1List<'a> {
     type T = List<'a, <T as PlugLifetime<'a>>::T>;
 }
-impl<'a, T: 'static> PlugType<T> for H1List<'a> {
-    default type T = List<'a, T>;
-}
-
-
 
 pub struct H2Elem;
 pub struct H1Elem<'a>(PhantomData<&'a ()>);
@@ -51,9 +90,6 @@ impl<'a> PlugLifetime<'a> for H2Elem {
 }
 impl<'a, T: 'a + PlugLifetime<'a>> PlugType<T> for H1Elem<'a> {
     type T = Elem<'a, <T as PlugLifetime<'a>>::T>;
-}
-impl<'a, T: 'static> PlugType<T> for H1Elem<'a> {
-    default type T = Elem<'a, T>;
 }
 
 impl<'r, T> Elem<'r, T> {
@@ -64,14 +100,6 @@ impl<'r, T> Elem<'r, T> {
     ) -> Self {
         todo!()
     }
-}
-
-pub struct HTry<T>(PhantomData<T>);
-impl<'a, T> PlugLifetime<'a> for HTry<T> {
-    default type T = T;
-}
-impl<'a, T: PlugLifetime<'a>> PlugLifetime<'a> for HTry<T> {
-    type T = <T as PlugLifetime<'a>>::T;
 }
 
 pub unsafe trait Id<T> {}
@@ -96,3 +124,36 @@ pub trait Trace {
 }
 
 pub struct Arena<A>(Vec<A>);
+
+mod auto_traits {
+    use super::*;
+    use std::cell::UnsafeCell;
+
+    pub unsafe auto trait NoGc {}
+    impl<'r, T> !NoGc for Gc<'r, T> {}
+    // unsafe impl<'r, T: NoGc> NoGc for Box<T> {}
+
+    pub trait HasGc {
+        const HAS_GC: bool;
+    }
+
+    impl<T> HasGc for T {
+        default const HAS_GC: bool = true;
+    }
+
+    impl<T: NoGc> HasGc for T {
+        const HAS_GC: bool = false;
+    }
+
+    /// Shallow immutability
+    pub unsafe auto trait Immutable {}
+    impl<T> !Immutable for &mut T {}
+    impl<'r, T> !Immutable for &'r T {}
+    impl<T> !Immutable for UnsafeCell<T> {}
+    unsafe impl<T> Immutable for Box<T> {}
+    unsafe impl<'r, T> Immutable for Gc<'r, T> {}
+
+    /// Should be implemented with each `Trace` impl.
+    pub auto trait NotDerived {}
+    impl<'l, T> !NotDerived for Gc<'l, T> {}
+}
