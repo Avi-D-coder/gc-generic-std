@@ -23,35 +23,26 @@ pub trait UnPlugLifetime {
 /// Realy `Gc<'r, T>(&'r T<'r>);`
 pub struct Gc<'r, T>(&'r T);
 
-pub struct H2Gc;
-pub struct H1Gc<'a>(PhantomData<&'a ()>);
-impl<'a> PlugLifetime<'a> for H2Gc {
-    type T = H1Gc<'a>;
+pub struct GcLifeless<T>(PhantomData<T>);
+impl<'r, T> UnPlugLifetime for Gc<'r, T> {
+    type T = GcLifeless<T>;
 }
-impl<'a, T: 'a> PlugType<T> for H1Gc<'a> {
-    type T = Gc<'a, T>;
-}
-impl<'a> UnPlugLifetime for H1Gc<'a> {
-    type T = H2Gc;
-}
-impl<'a> UnPlugType for H1Gc<'a> {
-    type T = H1Gc<'a>;
-}
-impl<'a, T> UnPlugType for Gc<'a, T> {
-    type T = H1Gc<'a>;
+impl<'r, T: UnPlugLifetime> PlugLifetime<'r> for GcLifeless<T> where <T as UnPlugLifetime>::T: PlugLifetime<'r>, <<T as UnPlugLifetime>::T as PlugLifetime<'r>>::T: 'r {
+    type T = Gc<'r, <<T as UnPlugLifetime>::T as PlugLifetime<'r>>::T>;
 }
 
-fn transmute_lifetime<'a, 'b, T: UnPlugType>(
-    from: T,
-) -> <<<<T as UnPlugType>::T as UnPlugLifetime>::T as PlugLifetime<'b>>::T as PlugType<T>>::T
-where
-    <T as UnPlugType>::T: UnPlugLifetime,
-    <<T as UnPlugType>::T as UnPlugLifetime>::T: generic_std::plug::PlugLifetime<'b>,
-    <<<T as UnPlugType>::T as UnPlugLifetime>::T as generic_std::plug::PlugLifetime<'b>>::T:
-        generic_std::plug::PlugType<T>,
-{
-    todo!()
-}
+
+// fn transmute_lifetime<'a, 'b, T: UnPlugType>(
+//     from: T,
+// ) -> <<<<T as UnPlugType>::T as UnPlugLifetime>::T as PlugLifetime<'b>>::T as PlugType<T>>::T
+// where
+//     <T as UnPlugType>::T: UnPlugLifetime,
+//     <<T as UnPlugType>::T as UnPlugLifetime>::T: generic_std::plug::PlugLifetime<'b>,
+//     <<<T as UnPlugType>::T as UnPlugLifetime>::T as generic_std::plug::PlugLifetime<'b>>::T:
+//         generic_std::plug::PlugType<T>,
+// {
+//     todo!()
+// }
 
 #[test]
 fn unify_test() {
